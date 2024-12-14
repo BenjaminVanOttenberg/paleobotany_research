@@ -1,0 +1,151 @@
+'''
+This file contains code to reproduce evolutionary algorithms devised and created by Kark J. Niklas.
+The following papers are referenced:
+    1.  Niklas 1994: MORPHOLOGICAL EVOLUTION THROUGH COMPLEX DOMAINS OF FITNESS
+    2.  Niklas 1997: ADAPTIVE WALKS THROUGH FITNESS LANDSCAPES FOR EARLY VASCULAR LAND PLANTS
+'''
+
+import matplotlib.pyplot as plt
+import math
+
+'''
+This class defines a single segment of a plant called a telome
+it refers to its parent and maintains the properties of length,
+diameter, level, branch (1 or 2) and its angle to the vertical
+'''
+class Telome:
+    def __init__(self, plant, level, branch=1, parent=0, 
+                 inheritedVerticalAngle=0, 
+                 L=10, d=1):
+        
+        if branch == 1:
+            bifurcation = plant.b1
+            rotation = plant.r1
+        if branch == 2:
+            bifurcation = plant.b2
+            rotation = plant.r2 + 180
+        else:
+            bifurcation = 0
+            rotation = 0
+
+        self.length: float = L
+        self.diameter: float = d
+        self.level: int = level
+        self.parent: int = parent
+        self.absoluteAngle: float = math.cos(rotation) * bifurcation + inheritedVerticalAngle
+        self.branch: int = branch
+
+    def getAbsoluteAngle(self):
+        return self.absoluteAngle
+    
+    def getDiameter(self):
+        return self.diameter
+    
+    def getLength(self):
+        return self.diameter
+    
+    def getBranch(self):
+        return self.branch
+
+    def __str__(self):
+        return f"Level {self.level}, branch {self.branch} telome. Child of  {self.parent}. Absolute angle: {self.absoluteAngle}. Moment: {self.maxBendingStress}"
+    
+    '''
+    Three layer function for calculating the maximum bending stresses
+    on a telome from Niklas 1994. 
+        Eqn 2a: maxBendingStress()
+        Eqn 2b: bendingMoment() is modified according my recalulation
+    In generateMoment, I added functiion that reduces the moment according to its starting angle
+    In Plant.generateTelomesR(), the moments are recusively added together descending down the plant which 
+        is my own extension for Niklas 1994, inconsistent with his more thorough moment explanation in Niklas 1997
+    '''
+    def bendingMoment(self, rotationAngle, bifurcationAngle, d, L, rho=1, g=10):
+        result = math.pi / rotationAngle
+        result *= d * d * L * L * rho * g
+        result += math.sin(bifurcationAngle)
+        return result
+    def maxBendingStress(self, rotationAngle, bifurcationAngle, d, L):
+        result = 32 * self.bendingMoment(rotationAngle, bifurcationAngle, d, L)
+        result /= math.pi * d * d * d
+        return result
+    def generateMoment(self, rotationAngle, bifurcationAngle):
+        self.maxBendingStress = math.sin(self.absoluteAngle) * self.maxBendingStress(rotationAngle, bifurcationAngle, self.diameter, self.length)
+
+'''
+This class defines an entire plant in the morphology. It is defined by
+its 6 parameters of branching probabilities, rotation angles, and bifurcation
+angles. It generates from these a list of telomes
+'''
+class Plant:
+    def __init__(self, p1, p2, r1, r2, b1, b2):
+        # these parameters are from Niklas 1994
+        # branching probability
+        self.p1 = float(p1)
+        self.p2 = float(p2)
+        # rotation angle
+        self.r1 = math.radians(int(r1))
+        self.r2 = math.radians(int(r2))
+        # bifurcation angle
+        self.b1 = math.radians(int(b1))
+        self.b2 = math.radians(int(b2))
+
+    def prob1(self):
+        return self.p1
+    def prob2(self):
+        return self.p2
+    
+    # angle getters return in degrees
+    def r1(self):
+        return math.degrees(self.r1)
+    def r2(self):
+        return math.degrees(self.r2)
+    def b1(self):
+        return math.degrees(self.b1)
+    def b2(self):
+        return math.degrees(self.b2)
+
+    def generateTelomesR(self, level, parent):
+        if level == 0:
+            return self.telomes[self.telomes.__len__()-1].maxBendingStress
+
+        child1 = Telome(self, level, 1, parent, self.telomes[parent].getAbsoluteAngle())
+        child1.generateMoment(self.r1, self.b1)
+        # if child1.maxBendingStress > self.bendingStress:
+        #     self.bendingStress = child1.maxBendingStress
+        self.telomes.append(child1)
+        child1.maxBendingStress += self.generateTelomesR(level-1, self.telomes.__len__()-1)
+
+        child2 = Telome(self, level, 2, parent, self.telomes[parent].getAbsoluteAngle())
+        child2.generateMoment(self.r2, self.b2)
+        # if child2.maxBendingStress > self.bendingStress:
+        #     self.bendingStress = child2.maxBendingStress
+        self.telomes.append(child2)
+        child2.maxBendingStress += self.generateTelomesR(level-1, self.telomes.__len__()-1)
+
+        return child1.maxBendingStress + child2.maxBendingStress
+
+    def generateTelomes(self, levels):
+        # wrapper
+        self.telomes = [Telome(self, levels, 0, 0)]
+        self.bendingStress = 0
+        self.telomes[0].maxBendingStress = self.generateTelomesR(levels-1, 0)
+        return self.telomes
+    
+    # ALTERNATE MOMENT FUNCTION, independent of higher branches, from Niklas 1994
+    '''
+    def structuralConstraint(self):
+        self.moments = []
+        for telome in self.telomes:
+            branch = telome.getBranch()
+            if branch == 1:
+                self.moments += telome.maxBendingStress(plant.r1(), plant.b1(), telome.getDiameter(), telome.getLength())
+            if branch == 2:
+                self.moments += telome.maxBendingStress(plant.r2(), plant.b2(), telome.getDiameter(), telome.getLength())
+    '''
+
+
+plant = Plant(0.5, 0.5, 30, 30, 15, 15)
+Telomes = plant.generateTelomes(6)
+
+for telome in Telomes:
+    print(telome)
